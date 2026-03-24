@@ -1,19 +1,40 @@
+let savedSessionId = localStorage.getItem('primat_session_id');
+
+if (!savedSessionId) {
+    savedSessionId = "session_" + Math.random().toString(36).substr(2, 9);
+    localStorage.setItem('primat_session_id', savedSessionId);
+}
+
 const CONFIG = {
-    API_BASE: "http://localhost:8000",
-    SESSION_ID: "session_" + Math.random().toString(36).substr(2, 9)
+    API_BASE: window.location.origin,
+    SESSION_ID: savedSessionId
 };
 
 const chatContainer = document.getElementById('chat-container');
 const chatForm = document.getElementById('chat-form');
 const userInput = document.getElementById('user-input');
 const loader = document.getElementById('loader');
-const sessionDisplay = document.getElementById('session-display');
 
-const tempInput = document.getElementById('setting-temperature');
-const toppInput = document.getElementById('setting-topp');
+async function loadHistory() {
+    try {
+        const res = await fetch(`${CONFIG.API_BASE}/api/chat/history?session_id=${CONFIG.SESSION_ID}`);
+        const data = await res.json();
 
-tempInput.addEventListener('input', (e) => document.getElementById('val-temperature').innerText = e.target.value);
-toppInput.addEventListener('input', (e) => document.getElementById('val-topp').innerText = e.target.value);
+        if (data.status === 'success' && data.history.length > 0) {
+            chatContainer.innerHTML = `
+                <div class="flex justify-center my-4">
+                    <span class="bg-[#86a9c9] px-4 py-0.5 rounded-full text-[12px] text-white font-medium shadow-sm">
+                        Сегодня
+                    </span>
+                </div>
+            `;
+            data.history.forEach(msg => {
+                appendMessage(msg.role, msg.content, false);
+            });
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+    } catch (err) {}
+}
 
 userInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -24,32 +45,30 @@ userInput.addEventListener('keydown', (e) => {
 
 userInput.addEventListener('input', function() {
     this.style.height = 'auto';
-    this.style.height = (this.scrollHeight) + 'px';
+    this.style.height = Math.min(this.scrollHeight, 150) + 'px';
 });
 
-async function updateState() {
-    sessionDisplay.innerText = CONFIG.SESSION_ID;
-    try {
-        const res = await fetch(`${CONFIG.API_BASE}/api/system/state`);
-        const data = await res.json();
-        document.getElementById('model-name').innerText = data.model;
-    } catch (err) {}
-}
+function appendMessage(role, content, animate = true) {
+    const isUser = role === 'user';
+    const wrapper = document.createElement('div');
+    wrapper.className = `flex w-full ${isUser ? 'justify-end' : 'justify-start'} ${animate ? 'animate-msg' : ''} px-2`;
 
-function appendMessage(role, content) {
-    const div = document.createElement('div');
-    div.className = `flex flex-col ${role === 'user' ? 'items-end' : 'items-start'} mb-4`;
+    const bubble = document.createElement('div');
+    bubble.className = `relative max-w-[85%] md:max-w-[75%] px-3 py-2 rounded-[15px] shadow-sm message-bubble ${
+        isUser
+        ? 'bg-[#effdde] text-slate-800 rounded-tr-[4px]'
+        : 'bg-white text-slate-800 rounded-tl-[4px]'
+    }`;
 
-    const textContent = content || "";
+    const text = document.createElement('div');
+    text.className = "prose prose-slate prose-sm max-w-none text-[15px]";
+    text.innerHTML = isUser ? content.replace(/\n/g, '<br>') : marked.parse(content);
 
-    div.innerHTML = `
-        <span class="text-xs text-slate-500 uppercase font-bold mb-1">${role}</span>
-        <div class="p-3 rounded-lg ${role === 'user' ? 'bg-blue-600' : 'bg-slate-800'} max-w-[90%] prose prose-invert">
-            ${role === 'user' ? textContent : marked.parse(textContent)}
-        </div>
-    `;
-    chatContainer.appendChild(div);
-    div.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+    bubble.appendChild(text);
+    wrapper.appendChild(bubble);
+
+    chatContainer.appendChild(wrapper);
+    bubble.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
     chatContainer.scrollTop = chatContainer.scrollHeight;
 }
 
@@ -63,35 +82,36 @@ chatForm.addEventListener('submit', async (e) => {
     userInput.style.height = 'auto';
     loader.classList.remove('hidden');
 
-    const requestPayload = {
-        message: text,
-        session_id: CONFIG.SESSION_ID,
-        temperature: parseFloat(tempInput.value),
-        top_p: parseFloat(toppInput.value)
-    };
-
     try {
         const res = await fetch(`${CONFIG.API_BASE}/api/chat`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(requestPayload)
+            body: JSON.stringify({
+                message: text,
+                session_id: CONFIG.SESSION_ID
+            })
         });
         const data = await res.json();
         if (data.status === 'success') {
             appendMessage('assistant', data.response);
         }
     } catch (err) {
-        appendMessage('assistant', "❌ Ошибка соединения");
     } finally {
         loader.classList.add('hidden');
     }
 });
 
 document.getElementById('clear-btn').addEventListener('click', async () => {
-    if(confirm("Очистить контекст?")) {
+    if(confirm("Очистить чат?")) {
         await fetch(`${CONFIG.API_BASE}/api/system/clear-history?session_id=${CONFIG.SESSION_ID}`, {method: 'POST'});
-        chatContainer.innerHTML = '';
+        chatContainer.innerHTML = `
+            <div class="flex justify-center my-4">
+                <span class="bg-[#86a9c9] px-4 py-0.5 rounded-full text-[12px] text-white font-medium shadow-sm">
+                    Сегодня
+                </span>
+            </div>
+        `;
     }
 });
 
-updateState();
+loadHistory();

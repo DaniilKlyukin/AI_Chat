@@ -1,36 +1,72 @@
 ::-webkit-scrollbar {
-    width: 6px;
+    width: 5px;
 }
 ::-webkit-scrollbar-track {
     background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-    background: #334155;
+    background: rgba(0, 0, 0, 0.1);
     border-radius: 10px;
 }
-::-webkit-scrollbar-thumb:hover {
-    background: #475569;
+
+.chat-background {
+    background-color: #e3effa;
+    position: relative;
+}
+
+.chat-background::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    opacity: 0.06;
+    background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%234a86b8' fill-rule='evenodd'%3E%3Cpath d='M10 10h4v4h-4zM40 50h3v3h-3zM80 20h4v4h-4zM15 75h3v3h-3z'/%3E%3Ccircle cx='60' cy='15' r='3'/%3E%3Ccircle cx='90' cy='65' r='2'/%3E%3Ccircle cx='30' cy='90' r='2'/%3E%3Cpath d='M70 85l3-3 1 1-3 3-1-1zM20 40l3 3 1-1-3-3-1 1zM55 35l4 4-1 1-4-4 1-1z'/%3E%3Cpath d='M85 45v4h-4v-4h4z' opacity='0.5'/%3E%3Cpath d='M45 15l2 4h-4l2-4z'/%3E%3C/g%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+}
+
+#chat-container {
+    scrollbar-gutter: stable;
+    position: relative;
+    z-index: 1;
+}
+
+.message-bubble {
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 
 .prose pre {
-    background: #0f172a !important;
-    border: 1px solid #1e293b;
-    border-radius: 0.5rem;
-    padding: 1rem;
-    margin: 0.5rem 0;
+    background: #fdfdfd !important;
+    border: 1px solid #d1d9e0;
+    border-radius: 8px;
+    padding: 8px;
+    margin: 4px 0;
 }
 
 .prose code {
-    color: #93c5fd;
+    color: #c0392b;
     font-size: 0.9em;
+    background: #f0f4f8;
+    padding: 2px 4px;
+    border-radius: 4px;
 }
 
 .prose p {
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.3rem;
+    line-height: 1.45;
 }
 
-.prose ul, .prose ol {
-    margin-left: 1.5rem;
-    margin-bottom: 0.75rem;
-    list-style-type: disc;
+textarea {
+    scrollbar-width: none;
+}
+textarea::-webkit-scrollbar {
+    display: none;
+}
+
+.animate-msg {
+    animation: slideIn 0.1s ease-out;
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
 }

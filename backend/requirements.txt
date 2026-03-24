@@ -1,8 +1,0 @@
-fastapi
-uvicorn
-litellm
-pydantic
-pydantic-settings
-sqlalchemy
-aiosqlite
-python-dotenv
