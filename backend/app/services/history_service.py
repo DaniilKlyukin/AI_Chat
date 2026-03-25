@@ -1,17 +1,15 @@
 from typing import Dict, List
+from collections import defaultdict
+
 
 class HistoryService:
     def __init__(self):
-        self._sessions: Dict[str, List[Dict[str, str]]] = {}
+        self._sessions: Dict[str, List[Dict[str, str]]] = defaultdict(list)
 
     def get_history(self, session_id: str) -> List[Dict[str, str]]:
-        if session_id not in self._sessions:
-            self._sessions[session_id] = []
         return self._sessions[session_id]
 
     def add_message(self, session_id: str, role: str, content: str):
-        if session_id not in self._sessions:
-            self._sessions[session_id] = []
         self._sessions[session_id].append({"role": role, "content": content})
 
     def clear(self, session_id: str):

@@ -16,6 +16,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.mount("/storage", StaticFiles(directory=str(settings.STORAGE_DIR)), name="storage")
 app.mount("/", StaticFiles(directory=str(settings.FRONTEND_DIR)), name="static")
 
 def get_ip():

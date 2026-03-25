@@ -12,8 +12,10 @@ class Settings(BaseSettings):
     ROOT_DIR: Path = BACKEND_DIR.parent
     FRONTEND_DIR: Path = ROOT_DIR / "frontend"
     SYSTEM_PROMPT_PATH: Path = ROOT_DIR / "system_prompt.txt"
+    STORAGE_DIR: Path = BACKEND_DIR / "storage"
 
     class Config:
         env_file = ".env"
 
 settings = Settings()
+settings.STORAGE_DIR.mkdir(exist_ok=True)

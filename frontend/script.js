@@ -190,6 +190,63 @@ chatForm.addEventListener('submit', async (e) => {
         const data = await res.json();
         if (data.status === 'success') {
             appendMessage('assistant', data.response);
+
+            if (data.download_url) {
+                const downloadLink = document.createElement('div');
+                downloadLink.className = 'mt-3 p-3 bg-[#50a2e9]/10 border border-[#50a2e9]/30 rounded-lg flex items-center justify-between';
+                downloadLink.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 text-[#50a2e9]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        <span class="text-sm font-medium">Проект готов к загрузке</span>
+                    </div>
+                    <a href="${data.download_url}" download class="text-[12px] bg-[#50a2e9] text-white px-3 py-1 rounded-md hover:bg-[#4392d8] transition">Скачать ZIP</a>
+                `;
+                const lastBubble = chatContainer.lastElementChild.querySelector('.message-bubble');
+                lastBubble.appendChild(downloadLink);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+        }
+    } catch (err) {
+        console.error(err);
+    } finally {
+        loader.classList.add('hidden');
+    }
+});
+
+chatForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = userInput.value.trim();
+    if (!text && selectedFiles.length === 0) return;
+
+    let displayHtml = text;
+    if (selectedFiles.length > 0) {
+        const fileNames = selectedFiles.map(f => `📎 ${f.name}`).join('<br>');
+        displayHtml = displayHtml ? `${displayHtml}<br><br><span class="text-sm text-slate-500">${fileNames}</span>` : `<span class="text-sm text-slate-500">${fileNames}</span>`;
+    }
+
+    appendMessage('user', displayHtml);
+
+    const formData = new FormData();
+    formData.append('message', text || 'Посмотри прикрепленные файлы.');
+    formData.append('session_id', CONFIG.SESSION_ID);
+    selectedFiles.forEach(file => {
+        formData.append('files', file);
+    });
+
+    userInput.value = '';
+    userInput.style.height = 'auto';
+    selectedFiles = [];
+    updateFilePreview();
+    loader.classList.remove('hidden');
+
+    try {
+        const res = await fetch(`${CONFIG.API_BASE}/api/chat`, {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            appendMessage('assistant', data.response);
         }
     } catch (err) {
     } finally {
