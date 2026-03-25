@@ -1,18 +1,19 @@
-from typing import Optional
 from pydantic_settings import BaseSettings
 from pathlib import Path
 
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
-
 class Settings(BaseSettings):
-    MODEL: str = "ollama/qwen3:8b"
+    MODEL: str = "ollama/qwen2.5:7b"
     API_BASE: str = "http://localhost:11434"
-    OLLAMA_API_KEY: Optional[str] = None
-    TEMPERATURE: float = 0.9
-    TOP_P: float = 0.8
+    OLLAMA_API_KEY: str = "ollama"
+    TEMPERATURE: float = 0.7
+    TOP_P: float = 0.9
+
+    BACKEND_DIR: Path = Path(__file__).resolve().parent.parent.parent
+    ROOT_DIR: Path = BACKEND_DIR.parent
+    FRONTEND_DIR: Path = ROOT_DIR / "frontend"
+    SYSTEM_PROMPT_PATH: Path = ROOT_DIR / "system_prompt.txt"
 
     class Config:
-        env_file = ROOT_DIR / ".env"
-        env_file_encoding = 'utf-8'
+        env_file = ".env"
 
 settings = Settings()

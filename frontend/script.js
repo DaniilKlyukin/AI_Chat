@@ -14,6 +14,12 @@ const chatContainer = document.getElementById('chat-container');
 const chatForm = document.getElementById('chat-form');
 const userInput = document.getElementById('user-input');
 const loader = document.getElementById('loader');
+const fileInput = document.getElementById('file-input');
+const attachBtn = document.getElementById('attach-btn');
+const filePreviewContainer = document.getElementById('file-preview-container');
+const dropOverlay = document.getElementById('drop-overlay');
+
+let selectedFiles = [];
 
 async function loadHistory() {
     try {
@@ -35,6 +41,84 @@ async function loadHistory() {
         }
     } catch (err) {}
 }
+
+function updateFilePreview() {
+    filePreviewContainer.innerHTML = '';
+    if (selectedFiles.length > 0) {
+        filePreviewContainer.classList.remove('hidden');
+        filePreviewContainer.classList.add('flex');
+        selectedFiles.forEach((file, index) => {
+            const pill = document.createElement('div');
+            pill.className = 'flex items-center gap-2 bg-white border border-[#c8d7e6] rounded-full px-3 py-1 text-sm text-slate-700 shadow-sm';
+            pill.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-[#50a2e9]">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                </svg>
+                <span class="max-w-[150px] truncate">${file.name}</span>
+                <button type="button" class="text-slate-400 hover:text-red-500" onclick="removeFile(${index})">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+                        <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                    </svg>
+                </button>
+            `;
+            filePreviewContainer.appendChild(pill);
+        });
+    } else {
+        filePreviewContainer.classList.add('hidden');
+        filePreviewContainer.classList.remove('flex');
+    }
+}
+
+window.removeFile = function(index) {
+    selectedFiles.splice(index, 1);
+    updateFilePreview();
+};
+
+attachBtn.addEventListener('click', () => {
+    fileInput.click();
+});
+
+fileInput.addEventListener('change', (e) => {
+    Array.from(e.target.files).forEach(file => {
+        selectedFiles.push(file);
+    });
+    updateFilePreview();
+    fileInput.value = '';
+});
+
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    document.body.addEventListener(eventName, preventDefaults, false);
+});
+
+function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+let dragCounter = 0;
+
+document.body.addEventListener('dragenter', (e) => {
+    dragCounter++;
+    dropOverlay.classList.remove('hidden');
+});
+
+document.body.addEventListener('dragleave', (e) => {
+    dragCounter--;
+    if (dragCounter === 0) {
+        dropOverlay.classList.add('hidden');
+    }
+});
+
+document.body.addEventListener('drop', (e) => {
+    dragCounter = 0;
+    dropOverlay.classList.add('hidden');
+    let dt = e.dataTransfer;
+    let files = dt.files;
+    Array.from(files).forEach(file => {
+        selectedFiles.push(file);
+    });
+    updateFilePreview();
+});
 
 userInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -75,21 +159,33 @@ function appendMessage(role, content, animate = true) {
 chatForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const text = userInput.value.trim();
-    if (!text) return;
+    if (!text && selectedFiles.length === 0) return;
 
-    appendMessage('user', text);
+    let displayHtml = text;
+    if (selectedFiles.length > 0) {
+        const fileNames = selectedFiles.map(f => `📎 ${f.name}`).join('<br>');
+        displayHtml = displayHtml ? `${displayHtml}<br><br><span class="text-sm text-slate-500">${fileNames}</span>` : `<span class="text-sm text-slate-500">${fileNames}</span>`;
+    }
+
+    appendMessage('user', displayHtml);
+
+    const formData = new FormData();
+    formData.append('message', text || 'Посмотри прикрепленные файлы.');
+    formData.append('session_id', CONFIG.SESSION_ID);
+    selectedFiles.forEach(file => {
+        formData.append('files', file);
+    });
+
     userInput.value = '';
     userInput.style.height = 'auto';
+    selectedFiles = [];
+    updateFilePreview();
     loader.classList.remove('hidden');
 
     try {
         const res = await fetch(`${CONFIG.API_BASE}/api/chat`, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                message: text,
-                session_id: CONFIG.SESSION_ID
-            })
+            body: formData
         });
         const data = await res.json();
         if (data.status === 'success') {
