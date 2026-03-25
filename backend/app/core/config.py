@@ -1,8 +1,9 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
 
+
 class Settings(BaseSettings):
-    MODEL: str = "ollama/qwen2.5:7b"
+    MODEL: str = "ollama/deepseek-r1:8b"
     API_BASE: str = "http://localhost:11434"
     OLLAMA_API_KEY: str = "ollama"
     TEMPERATURE: float = 0.7

@@ -25,6 +25,7 @@ async def serve_index(request: Request):
 async def chat_endpoint(
         message: str = Form(...),
         session_id: str = Form(...),
+        use_tools: bool = Form(True),
         files: Optional[List[UploadFile]] = File(None)
 ):
     history_snapshot = history_manager.get_history(session_id)
@@ -41,7 +42,7 @@ async def chat_endpoint(
 
     history_manager.add_message(session_id, "user", full_message)
 
-    ai_data = await ai_service.get_response(full_message, history_snapshot, session_id)
+    ai_data = await ai_service.get_response(full_message, history_snapshot, session_id, use_tools)
     response_text = ai_data["text"]
 
     history_manager.add_message(session_id, "assistant", response_text)
