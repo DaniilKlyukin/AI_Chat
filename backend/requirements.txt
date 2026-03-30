@@ -1,0 +1,18 @@
+# Основной веб-фреймворк и сервер
+fastapi
+uvicorn
+jinja2
+python-multipart
+
+# Работа с настройками и переменными окружения
+pydantic-settings
+
+# Взаимодействие с LLM (Ollama и другие)
+litellm
+
+# Обработка файлов и документов
+pypdf
+python-docx
+
+# Утилиты
+aiohttp
