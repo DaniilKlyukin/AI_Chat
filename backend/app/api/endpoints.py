@@ -1,8 +1,7 @@
 import os
-import shutil
-from fastapi import APIRouter, UploadFile, File, Form, Request
+from fastapi import APIRouter, UploadFile, File, Form, Request, BackgroundTasks
 from fastapi.templating import Jinja2Templates
-from typing import List, Optional
+from typing import List
 from app.services.file_service import FileService
 from app.services.history_service import history_manager
 from app.services.ai_service import ai_service
@@ -18,41 +17,42 @@ async def serve_index(request: Request):
     return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "js_ver": os.path.getmtime(js_p) if js_p.exists() else 1,
-        "css_ver": os.path.getmtime(css_p) if css_p.exists() else 1
+        "css_ver": os.path.getmtime(css_p) if css_p.exists() else 1,
+        "model_fast": settings.MODEL_FAST,
+        "model_strong": settings.MODEL_STRONG
     })
 
 @router.post("/api/chat")
 async def chat_endpoint(
+        background_tasks: BackgroundTasks,
         message: str = Form(...),
         session_id: str = Form(...),
-        use_tools: bool = Form(True),
-        files: Optional[List[UploadFile]] = File(None)
+        model_id: str = Form(...),
+        files: List[UploadFile] = File(None)
 ):
-    history_snapshot = history_manager.get_history(session_id)
+    background_tasks.add_task(FileService.cleanup_old_data)
 
-    full_message = message
+    history_snapshot = history_manager.get_history(session_id)
+    saved_paths = []
     if files:
-        file_texts = []
         for f in files:
             if f.filename:
-                text = await FileService.extract_text(f)
-                file_texts.append(f"--- Содержимое файла {f.filename} ---\n{text}")
-        if file_texts:
-            full_message += "\n\n" + "\n\n".join(file_texts)
+                path = await FileService.save_temp_file(f, session_id)
+                saved_paths.append(str(path))
 
-    history_manager.add_message(session_id, "user", full_message)
+    ai_data = await ai_service.get_response(message, history_snapshot, session_id, model_id, saved_paths)
 
-    ai_data = await ai_service.get_response(full_message, history_snapshot, session_id, use_tools)
-    response_text = ai_data["text"]
+    if "ЛИМИТ:" not in ai_data["text"]:
+        history_manager.add_message(session_id, "user", message)
+        history_manager.add_message(session_id, "assistant", ai_data["text"])
 
-    history_manager.add_message(session_id, "assistant", response_text)
-
-    download_url = FileService.create_session_zip(session_id)
+    for p in saved_paths:
+        if os.path.exists(p): os.remove(p)
 
     return {
         "status": "success",
-        "response": response_text,
-        "download_url": download_url
+        "response": ai_data["text"],
+        "model_used": ai_data["model"]
     }
 
 @router.get("/api/chat/history")
@@ -62,10 +62,4 @@ async def get_chat_history(session_id: str):
 @router.post("/api/system/clear-history")
 async def clear_chat_history(session_id: str):
     history_manager.clear(session_id)
-    session_storage = settings.STORAGE_DIR / session_id
-    if session_storage.exists():
-        shutil.rmtree(session_storage)
-    zip_file = settings.STORAGE_DIR / f"project_{session_id}.zip"
-    if zip_file.exists():
-        os.remove(zip_file)
     return {"status": "ok"}

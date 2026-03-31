@@ -30,7 +30,6 @@ def get_ip():
         s.close()
 
 if __name__ == "__main__":
-    ip = get_ip()
-    port = 8000
-    print(f"\nAI Chat запущен: http://{ip}:{port}\n")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    print(f" http://{get_ip()}:8000")
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)

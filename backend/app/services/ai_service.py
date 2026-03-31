@@ -1,161 +1,113 @@
 import logging
-import json
-import re
+import time
+import os
 from typing import List, Dict, Any
-from litellm import acompletion
+from google import genai
+from google.genai import types
 from app.core.config import settings
+from app.services.history_service import history_manager
+from app.services.file_service import FileService
 
 logger = logging.getLogger(__name__)
 
 
 class AIService:
     def __init__(self):
-        self.default_prompt = (
-            "Ты — виртуальный представитель кафедры ПМИТ. Ты эксперт-помощник. "
-            "Если тебя просят написать код или создать проект, ВСЕГДА используй инструменты создания файлов. "
-            "После вызова инструментов обязательно напиши краткий комментарий пользователю о том, что было сделано."
-        )
-        self.tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "create_file",
-                    "description": "Создает файл с указанным содержимым",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "session_id": {"type": "string"},
-                            "relative_path": {"type": "string", "description": "Относительный путь к файлу"},
-                            "content": {"type": "string", "description": "Содержимое файла"}
-                        },
-                        "required": ["relative_path", "content", "session_id"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "create_directory",
-                    "description": "Создает папку",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "session_id": {"type": "string"},
-                            "relative_path": {"type": "string", "description": "Относительный путь к папке"}
-                        },
-                        "required": ["relative_path", "session_id"]
-                    }
-                }
-            }
-        ]
+        self.client = genai.Client(api_key=settings.API_KEY)
 
-    def _get_system_prompt(self) -> str:
-        if settings.SYSTEM_PROMPT_PATH.exists():
-            try:
-                return settings.SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
-            except Exception:
-                return self.default_prompt
-        return self.default_prompt
-
-    async def execute_tool(self, func_name: str, args: Dict) -> str:
-        session_id = args.get("session_id")
-        rel_path = args.get("relative_path")
-        if not session_id or not rel_path:
-            return "Ошибка: отсутствуют аргументы session_id или relative_path."
-
-        base_path = settings.STORAGE_DIR / session_id
-        base_path.mkdir(exist_ok=True)
-        target_path = (base_path / rel_path).resolve()
-
-        if not str(target_path).startswith(str(base_path.resolve())):
-            return "Ошибка: выход за пределы разрешенной директории."
-
-        if func_name == "create_file":
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            target_path.write_text(args.get("content", ""), encoding="utf-8")
-            return f"Файл {rel_path} успешно создан."
-        elif func_name == "create_directory":
-            target_path.mkdir(parents=True, exist_ok=True)
-            return f"Директория {rel_path} создана."
-        return "Неизвестная функция."
-
-    def _manual_parse_json(self, text: str) -> List[Dict]:
-        found_tools = []
+    def _count_tokens(self, model: str, contents: List[types.Content]) -> int:
         try:
-            potential_jsons = re.findall(r'\{.*\}', text, re.DOTALL)
-            for pj in potential_jsons:
-                data = json.loads(pj)
-                if "function" in data or ("name" in data and "arguments" in data):
-                    found_tools.append(data)
+            return self.client.models.count_tokens(model=model, contents=contents).total_tokens
         except:
-            pass
-        return found_tools
+            return 0
 
-    async def get_response(self, user_input: str, history: List[Dict], session_id: str, use_tools: bool = True) -> Dict[
-        str, Any]:
-        messages = [{"role": "system", "content": self._get_system_prompt()}] + history
-        prepended_input = f"[SESSION_ID: {session_id}] {user_input}"
-        messages.append({"role": "user", "content": prepended_input})
+    async def _summarize_history(self, session_id: str, model_id: str, history: List[Dict]):
+        if len(history) < 4: return
+
+        to_summarize = history[:-2]
+        text_to_shrink = "\n".join([f"{m['role']}: {m['content']}" for m in to_summarize])
+
+        prompt = f"Сделай очень краткое техническое резюме этого диалога (суть, принятые решения, важный код). Максимально сожми текст:\n\n{text_to_shrink}"
 
         try:
-            kwargs = {
-                "model": settings.MODEL,
-                "messages": messages,
-                "api_base": settings.API_BASE,
-                "api_key": settings.OLLAMA_API_KEY,
-                "temperature": settings.TEMPERATURE,
-                "timeout": 1800,
-            }
-            if use_tools:
-                kwargs["tools"] = self.tools
-                kwargs["tool_choice"] = "auto"
-
-            response = await acompletion(**kwargs)
-            message = response.choices[0].message
-            content = message.content or ""
-
-            tool_calls_to_exec = []
-            if use_tools and message.tool_calls:
-                for tc in message.tool_calls:
-                    tool_calls_to_exec.append({
-                        "id": tc.id,
-                        "name": tc.function.name,
-                        "args": json.loads(tc.function.arguments)
-                    })
-            elif use_tools:
-                manual_tools = self._manual_parse_json(content)
-                for mt in manual_tools:
-                    name = mt.get("function") or mt.get("name")
-                    args = mt.get("arguments") if isinstance(mt.get("arguments"), dict) else mt
-                    tool_calls_to_exec.append({"id": "manual", "name": name, "args": args})
-
-            if tool_calls_to_exec:
-                messages.append(message)
-                for tc in tool_calls_to_exec:
-                    result = await self.execute_tool(tc["name"], tc["args"])
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.get("id", "manual"),
-                        "name": tc["name"],
-                        "content": result
-                    })
-
-                messages.append({"role": "user",
-                                 "content": "Файлы созданы. Теперь кратко ответь пользователю на естественном языке, что именно ты сделал."})
-
-                final_response = await acompletion(
-                    model=settings.MODEL,
-                    messages=messages,
-                    api_base=settings.API_BASE,
-                    api_key=settings.OLLAMA_API_KEY,
-                    temperature=settings.TEMPERATURE
-                )
-                return {"text": final_response.choices[0].message.content, "has_files": True}
-
-            return {"text": content, "has_files": False}
+            # Для саммаризации используем упрощенный вызов без system_instruction
+            res = self.client.models.generate_content(
+                model=model_id,
+                contents=[types.Content(role="user", parts=[types.Part(text=prompt)])]
+            )
+            summary_text = f"[Контекст предыдущего диалога: {res.text}]"
+            history_manager.replace_with_summary(session_id, len(to_summarize), summary_text)
         except Exception as e:
-            logger.error(f"AI Service Error: {e}")
-            return {"text": f"Ошибка сервера: {str(e)}", "has_files": False}
+            logger.error(f"Summarization failed: {e}")
+
+    async def get_response(self, user_input: str, history: List[Dict], session_id: str, requested_model: str,
+                           file_paths: List[str]) -> Dict:
+        system_instr = settings.SYSTEM_PROMPT_PATH.read_text(
+            encoding="utf-8") if settings.SYSTEM_PROMPT_PATH.exists() else "Assistant"
+
+        file_text_bundle = ""
+        for fp in file_paths:
+            content = FileService.get_file_content_safe(fp)
+            file_text_bundle += f"\n\n--- FILE: {os.path.basename(fp)} ---\n{content}\n--- END ---"
+
+        current_user_text = user_input + file_text_bundle
+
+        input_parts = [types.Part(text=current_user_text)]
+        input_tokens = self._count_tokens(requested_model, [types.Content(role="user", parts=input_parts)])
+
+        effective_model = requested_model
+        if input_tokens > 12000:
+            effective_model = settings.MODEL_STRONG
+
+        cooldown = settings.COOLDOWN_FAST if effective_model == settings.MODEL_FAST else settings.COOLDOWN_STRONG
+        wait = history_manager.check_rate_limit(session_id, effective_model, cooldown)
+        if wait > 0:
+            return {"text": f"ЛИМИТ:{wait}", "model": effective_model}
+
+        contents = []
+        is_gemma = "gemma" in effective_model.lower()
+
+        if is_gemma:
+            contents.append(types.Content(role="user", parts=[types.Part(text=f"SYSTEM INSTRUCTION: {system_instr}")]))
+            contents.append(
+                types.Content(role="model", parts=[types.Part(text="Understood. I will follow these instructions.")]))
+
+        # Добавляем историю
+        for m in history:
+            contents.append(types.Content(role="user" if m["role"] == "user" else "model",
+                                          parts=[types.Part(text=m["content"])]))
+
+        current_parts = [types.Part(text=current_user_text)]
+        if not is_gemma and effective_model == settings.MODEL_STRONG:
+            current_parts = [types.Part(text=user_input)]
+            for fp in file_paths:
+                try:
+                    uploaded = self.client.files.upload(path=fp)
+                    while uploaded.state.name == "PROCESSING":
+                        time.sleep(1)
+                        uploaded = self.client.files.get(name=uploaded.name)
+                    current_parts.append(types.Part.from_uri(file_uri=uploaded.uri, mime_type=uploaded.mime_type))
+                except:
+                    pass
+
+        contents.append(types.Content(role="user", parts=current_parts))
+
+        if is_gemma and self._count_tokens(effective_model, contents) > 13000:
+            await self._summarize_history(session_id, effective_model, history)
+            new_history = history_manager.get_history(session_id)
+            return await self.get_response(user_input, new_history, session_id, requested_model, file_paths)
+
+        try:
+            config = types.GenerateContentConfig(temperature=0.7)
+            if not is_gemma:
+                config.system_instruction = system_instr
+
+            res = self.client.models.generate_content(model=effective_model, contents=contents, config=config)
+            history_manager.update_timestamp(session_id, effective_model)
+            return {"text": res.text, "model": effective_model}
+        except Exception as e:
+            logger.error(f"API Error: {e}")
+            return {"text": f"Ошибка API: {str(e)}", "model": effective_model}
 
 
 ai_service = AIService()
